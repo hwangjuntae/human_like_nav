@@ -1,1 +1,4 @@
+# docker version
+nvidia/cuda:11.7.1-cudnn8-devel-ubuntu22.04
+
 https://www.kaggle.com/datasets/fmena14/crowd-counting?resource=download
