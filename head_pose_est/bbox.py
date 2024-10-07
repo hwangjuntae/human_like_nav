@@ -16,7 +16,6 @@ import random
 META_FILE = '../archive/labels.csv'
 MODEL_PATH = 'https://tfhub.dev/tensorflow/efficientdet/d0/1'
 
-# 상대 경로로 파일을 참조하는 함수
 def get_relative_path(file_name: str) -> str:
     script_dir = os.path.dirname(__file__)
     return os.path.join(script_dir, file_name)
@@ -35,7 +34,7 @@ def count_persons(path: str, model, threshold=0.) -> int:
     return (results['detection_classes'].numpy()[0] == 1)[np.where(
         results['detection_scores'].numpy()[0] > threshold)].sum()
 
-def draw_bboxes(image_path, data: dict, threshold=0.) -> PIL.Image:
+def draw_bboxes_with_labels(image_path, data: dict, threshold=0., save_csv=False, csv_filename='bbox.csv') -> PIL.Image:
     image = PIL.Image.open(image_path)
     draw = Draw(image)
     im_width, im_height = image.size
@@ -43,13 +42,46 @@ def draw_bboxes(image_path, data: dict, threshold=0.) -> PIL.Image:
     classes = data['detection_classes'].numpy()[0]
     scores = data['detection_scores'].numpy()[0]
 
+    label_data = []
+    person_count = 0
+
     for i in range(int(data['num_detections'][0])):
         if classes[i] == 1 and scores[i] > threshold:
+            person_count += 1
             ymin, xmin, ymax, xmax = boxes[i]
             (left, right, top, bottom) = (xmin * im_width, xmax * im_width,
                                           ymin * im_height, ymax * im_height)
             draw.line([(left, top), (left, bottom), (right, bottom), (right, top), (left, top)],
                       width=4, fill='red')
+            # 고유한 라벨 추가 (예: 'Person1', 'Person2', ...)
+            label = f'Person{person_count}'
+            draw.text((left, top - 10), label, fill='red')
+
+            # 바운딩 박스 데이터 수집
+            label_data.append({
+                'image_path': image_path,
+                'person_id': label,
+                'score': scores[i],
+                'xmin': xmin,
+                'ymin': ymin,
+                'xmax': xmax,
+                'ymax': ymax
+            })
+
+    if save_csv and label_data:
+        df = pd.DataFrame(label_data)
+        # CSV 저장 경로 설정 (현재 실행 중인 폴더의 data/bbox.csv)
+        csv_dir = os.path.join(os.path.dirname(__file__), 'data')
+        if not os.path.exists(csv_dir):
+            os.makedirs(csv_dir)
+        csv_path = os.path.join(csv_dir, csv_filename)
+
+        # CSV 파일이 존재하면 헤더 없이 추가
+        if os.path.exists(csv_path):
+            df.to_csv(csv_path, mode='a', header=False, index=False)
+        else:
+            df.to_csv(csv_path, index=False)
+
     return image
 
 def set_display():
@@ -67,25 +99,22 @@ stats = data.describe()
 
 detector = hub.load(MODEL_PATH)
 
-# 저장 경로를 설정
-save_dir = './images/'
+save_dir = '../archive/images/'
 
-# 디렉토리가 존재하지 않으면 생성
 if not os.path.exists(save_dir):
     os.makedirs(save_dir)
 
-# 모든 이미지에 대해 바운딩 박스를 그린 후 저장
+# 기존의 draw_bboxes 함수를 draw_bboxes_with_labels로 변경하고, save_csv=True로 설정
 for index, row in data.iterrows():
     example_path = row['path']
     if os.path.exists(example_path):
         results = detect_objects(example_path, detector)
-        image_with_boxes = draw_bboxes(example_path, results, threshold=0.25)
-        image_filename = os.path.basename(example_path)  # 이미지 파일명 가져오기
+        image_with_boxes = draw_bboxes_with_labels(example_path, results, threshold=0.25, save_csv=True)
+        image_filename = os.path.basename(example_path)
         image_with_boxes.save(os.path.join(save_dir, f'output_{image_filename}'))
     else:
         print(f"Image not found: {example_path}")
 
-# 샘플에 대한 사람 수 예측 및 저장
 sample = data.sample(frac=0.1)
 start = time.perf_counter()
 objects = []
